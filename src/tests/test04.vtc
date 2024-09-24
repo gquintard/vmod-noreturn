@@ -1,0 +1,72 @@
+varnishtest "Test noreturn vmod"
+
+server s0 {
+} -start
+
+server s1 {
+	rxreq
+	txresp -body "/1"
+
+	rxreq
+	txresp -body "/1"
+
+	rxreq
+	txresp -body "/2"
+} -start
+
+varnish v1 -vcl+backend {
+	import std;
+	import ${vmod_noreturn};
+
+	include "${testdir}/../noreturn.vcl";
+
+	sub vcl_recv {
+		if (req.url == "/1") {
+			noreturn.cache(s1, ttl = 0.5s, grace = 0s);
+		} else {
+			noreturn.cache(s1, success_sub = my_backend_response);
+		}
+		return (synth(666));
+	}
+
+	sub my_backend_response {
+		set beresp.http.foo = "bar";
+	}
+
+	sub vcl_deliver {
+		set resp.http.hits = obj.hits;
+	}
+} -start
+
+varnish v1 -cliok "param.set debug +syncvsl"
+
+client c1 {
+	txreq -url "/1" -hdr "fetch: 1"
+	rxresp
+	expect resp.body == "/1"
+	expect resp.http.hits == 0
+
+	txreq -url "/1" -hdr "fetch: 2"
+	rxresp
+	expect resp.body == "/1"
+	expect resp.http.hits == 1
+
+	delay 1
+
+	txreq -url "/1" -hdr "fetch: 3"
+	rxresp
+	expect resp.body == "/1"
+	expect resp.http.hits == 0
+
+	txreq -url "/2" -hdr "fetch: 1"
+	rxresp
+	expect resp.body == "/2"
+	expect resp.http.hits == 0
+
+	delay 1
+
+	txreq -url "/2" -hdr "fetch: 2"
+	rxresp
+	expect resp.body == "/2"
+	expect resp.http.hits == 1
+} -run

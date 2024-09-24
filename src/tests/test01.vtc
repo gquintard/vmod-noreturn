@@ -1,36 +1,37 @@
-varnishtest "Test example vmod"
+varnishtest "Test noreturn vmod"
 
 server s1 {
-       rxreq
-       txresp
 } -start
 
 varnish v1 -vcl+backend {
 	import std;
-	import ${vmod_example};
+	import ${vmod_noreturn};
 
-	sub vcl_init {
-		std.log(example.info());
+	include "${testdir}/../noreturn.vcl";
+
+	sub vcl_recv {
+		if (req.url == "/1") {
+			noreturn.synth(sub = my_synth);
+		} else {
+			noreturn.synth(status = 200, message = "synthetic body");
+		}
+		return (synth(666));
 	}
 
-	sub vcl_deliver {
-		set resp.http.hello = example.hello("World");
-		set resp.http.info = example.info();
+	sub my_synth {
+		set resp.status = 203;
+		set resp.http.foo = "bar";
 	}
-} -start
-
-logexpect l1 -v v1 -g raw -d 1 {
-	expect 0 0    CLI     {^Rd vcl.load}
-	expect 0 =    VCL_Log {^vmod_example loaded at }
 } -start
 
 client c1 {
-	txreq -url "/"
+	txreq -url "/1"
 	rxresp
-	expect resp.http.hello == "Hello, World"
-	expect resp.http.info  ~  "^vmod_example warmed at "
-}
+	expect resp.status == 203
+	expect resp.http.foo == "bar"
 
-client c1 -run
-
-logexpect l1 -wait
+	txreq -url "/2"
+	rxresp
+	expect resp.status == 200
+	expect resp.body == "synthetic body"
+} -run

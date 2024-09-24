@@ -1,0 +1,43 @@
+#
+# Copyright YOU (c) 1900.
+#
+# (vmodtool requires this format.)
+#
+
+$Module noreturn 3 "noreturn VMOD"
+
+DESCRIPTION
+===========
+
+This is the embedded documentation for the noreturn VMOD. It should
+mention what the vmod is intended to do.
+
+It can span multiple lines and is written in RST format.
+You can even have links and lists in here:
+
+* https://github.com/varnish/libvmod-noreturn/
+* https://www.varnish-cache.org/
+
+$Event event_function
+
+$Function VOID synth(PRIV_TASK priv, [INT status], [STRING reason], [STRING message], [SUB sub])
+$Restrict vcl_recv
+
+$Function VOID redirect(PRIV_TASK priv, [INT status], STRING location)
+$Restrict vcl_recv
+
+$Function VOID pass(PRIV_VCL priv, BACKEND backend, [SUB success_sub], [SUB error_sub])
+$Restrict vcl_recv
+
+$Function VOID cache(PRIV_VCL priv, BACKEND backend, [DURATION ttl], [DURATION grace], [DURATION keep], [SUB success_sub], [SUB error_sub], BOOL force_cache = 0)
+$Restrict vcl_recv
+
+$Function VOID internal_proceed(PRIV_TASK)
+$Restrict vcl_deliver vcl_synth vcl_backend_response vcl_backend_error
+
+$Function VOID internal_reset(PRIV_TASK)
+
+$Function VOID internal_load_state(PRIV_VCL, PRIV_TASK, STRING)
+$Restrict vcl_backend_fetch
+
+$Function VOID internal_set_builtin_recv(PRIV_VCL, SUB)

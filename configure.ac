@@ -1,9 +1,9 @@
 AC_PREREQ([2.68])
-AC_INIT([libvmod-example], [0.1], [], [vmod-example])
+AC_INIT([libvmod-noreturn], [0.1], [], [vmod-noreturn])
 AC_COPYRIGHT([Public Domain])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
-AC_CONFIG_SRCDIR(src/vmod_example.vcc)
+AC_CONFIG_SRCDIR(src/vmod_noreturn.vcc)
 AC_CONFIG_HEADER([config.h])
 
 AM_INIT_AUTOMAKE([1.12 -Wall -Werror foreign parallel-tests])
@@ -19,6 +19,9 @@ LIBS="$PTHREAD_LIBS $LIBS"
 CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
 CC="$PTHREAD_CC"
 
+AC_SEARCH_LIBS([cJSON_ReplaceItemInObjectCaseSensitive], [cjson], [],
+  AC_MSG_ERROR([cJSON is required.]))
+
 AC_ARG_WITH([rst2man],
 	[AS_HELP_STRING(
 		[--with-rst2man=PATH],
@@ -30,7 +33,7 @@ AC_ARG_WITH([rst2man],
 m4_ifndef([VARNISH_PREREQ], AC_MSG_ERROR([Need varnish.m4 -- see README.rst]))
 
 VARNISH_PREREQ([6.2])
-VARNISH_VMODS([example])
+VARNISH_VMODS([noreturn])
 
 VMOD_TESTS="$(cd $srcdir/src && echo tests/*.vtc)"
 AC_SUBST(VMOD_TESTS)

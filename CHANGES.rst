@@ -1,11 +1,11 @@
-This is a running log of changes to libvmod-example.
+This is a running log of changes to libvmod-noreturn.
 
-libvmod-example 0.2 (unreleased)
+libvmod-noreturn 0.2 (unreleased)
 --------------------------------
 
 * The most recent release entry is at the top.
 
-libvmod-example 0.1 (1970-01-01)
+libvmod-noreturn 0.1 (1970-01-01)
 --------------------------------
 
 * Add list items with changes done.

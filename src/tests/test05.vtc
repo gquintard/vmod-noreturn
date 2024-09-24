@@ -1,0 +1,43 @@
+varnishtest "builtin"
+
+server s1 {
+	rxreq
+	txresp
+
+	rxreq
+	txresp
+} -start
+
+varnish v1 -vcl+backend {
+	import std;
+	import ${vmod_noreturn};
+
+	include "${testdir}/../noreturn.vcl";
+
+	sub post_recv {
+		set req.http.post_recv = "true";
+	}
+
+	sub vcl_init {
+		noreturn.internal_set_builtin_recv(post_recv);
+	}
+
+	sub vcl_recv {
+		set req.http.post_recv = "false";
+		noreturn.cache(s1, force_cache = req.http.force_cache);
+	}
+
+	sub vcl_deliver {
+		set resp.http.post_recv = req.http.post_recv;
+	}
+} -start
+
+client c1 {
+	txreq -url "/1" -hdr "force_cache: true"
+	rxresp
+	expect resp.http.post_recv == false
+
+	txreq -url "/2"
+	rxresp
+	expect resp.http.post_recv == true
+} -run

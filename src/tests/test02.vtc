@@ -1,0 +1,24 @@
+varnishtest "redirect"
+
+server s1 {
+       rxreq
+       txresp
+} -start
+
+varnish v1 -vcl+backend {
+	import std;
+	import ${vmod_noreturn};
+
+	include "${testdir}/../noreturn.vcl";
+
+	sub vcl_recv {
+		noreturn.redirect(301, "http://google.com");
+	}
+} -start
+
+client c1 {
+	txreq
+	rxresp
+	expect resp.status == 301
+	expect resp.http.location == "http://google.com"
+} -run

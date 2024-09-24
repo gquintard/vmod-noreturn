@@ -1,0 +1,43 @@
+varnishtest "pass"
+
+server s1 {
+       rxreq
+       txresp -body "s1"
+} -start
+
+server s2 {
+       rxreq
+       txresp -body "s2"
+} -start
+
+varnish v1 -vcl+backend {
+	import std;
+	import ${vmod_noreturn};
+
+	include "${testdir}/../noreturn.vcl";
+
+	backend default none;
+
+	sub vcl_recv {
+		if (req.url == "/s1") {
+			noreturn.pass(s1);
+		} else {
+			noreturn.pass(s2, add_hdr);
+		}
+	}
+
+	sub add_hdr {
+		set beresp.http.foo = "bar";
+	}
+} -start
+
+client c1 {
+	txreq -url "/s1"
+	rxresp
+	expect resp.body == "s1" 
+
+	txreq -url "/s2"
+	rxresp
+	expect resp.body == "s2" 
+	expect resp.http.foo == bar
+} -run
