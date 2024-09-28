@@ -32,8 +32,11 @@ $Restrict vcl_recv
 $Function VOID cache(PRIV_VCL priv, BACKEND backend, [DURATION ttl], [DURATION grace], [DURATION keep], [SUB success_sub], [SUB error_sub], BOOL force_cache = 0)
 $Restrict vcl_recv
 
+$Function VOID hash_data(PRIV_TASK priv, STRANDS s)
+$Restrict vcl_recv
+
 $Function VOID internal_proceed(PRIV_TASK)
-$Restrict vcl_deliver vcl_synth vcl_backend_response vcl_backend_error
+$Restrict vcl_deliver vcl_synth vcl_backend_response vcl_backend_error vcl_hash
 
 $Function VOID internal_reset(PRIV_TASK)
 

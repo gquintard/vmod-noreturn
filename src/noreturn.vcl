@@ -24,3 +24,7 @@ sub vcl_backend_response {
 sub vcl_backend_error {
 	noreturn.internal_proceed();
 }
+
+sub vcl_hash {
+	noreturn.internal_proceed();
+}

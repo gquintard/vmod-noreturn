@@ -12,14 +12,14 @@ nodist_libvmod_noreturn_la_SOURCES = \
 
 dist_man_MANS = vmod_noreturn.3
 
-@BUILD_VMOD_LETS@
+@BUILD_VMOD_NORETURN@
 
 AM_TESTS_ENVIRONMENT = \
 	PATH="$(VMOD_TEST_PATH)" \
 	LD_LIBRARY_PATH="$(VARNISH_LIBRARY_PATH)"
 TEST_EXTENSIONS = .vtc
 VTC_LOG_COMPILER = varnishtest -v
-AM_VTC_LOG_FLAGS = -Dvmod_noreturn="$(VMOD_LETS)"
+AM_VTC_LOG_FLAGS = -Dvmod_noreturn="$(VMOD_NORETURN)"
 
 TESTS = @VMOD_TESTS@
 

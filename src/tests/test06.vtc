@@ -1,0 +1,48 @@
+varnishtest "Test noreturn vmod"
+
+varnish v1 -arg "-p vsl_mask=+Hash" -arg "-p vcc_allow_inline_c=true" -vcl+backend {
+	import blob;
+	import std;
+
+	import ${vmod_noreturn};
+
+	include "${testdir}/../noreturn.vcl";
+
+	backend be none;
+
+	sub vcl_recv {
+		if (req.url == "/hash_foo_bar") {
+			noreturn.hash_data(req.http.foo);
+			noreturn.hash_data(req.http.bar);
+		}
+		# it'll fail, but it's ok, we just want access to req.hash
+		noreturn.pass(be);
+	}
+
+	sub vcl_deliver {
+		set resp.http.hash = blob.encode(blob=req.hash, encoding=HEX);
+	}
+} -start
+
+client c1 {
+	txreq -url "/url1" -hdr "host: varnish"
+	rxresp
+#	expect resp.http.hash == "c7211da4cd527e58015d0ca2b14028a04617b92157ffc3dde9579e7b4af9814b"
+
+	txreq -url "/hash_foo_bar" -hdr "foo: /url1" -hdr "bar: varnish"
+	rxresp
+	expect resp.http.hash == "c7211da4cd527e58015d0ca2b14028a04617b92157ffc3dde9579e7b4af9814b"
+
+	# prove that we are not going through the built-in vcl_hash
+	txreq -url "/hash_foo_bar" -hdr "foo: /url1" -hdr "bar: varnish" -hdr "foo: example.com"
+	rxresp
+	expect resp.http.hash == "c7211da4cd527e58015d0ca2b14028a04617b92157ffc3dde9579e7b4af9814b"
+
+	txreq -url "/url2" -hdr "host: varnish"
+	rxresp
+	expect resp.http.hash == "a1a27a25a00de431e643587f0a75e9e043bd8f9bd64f823be2fd904c36b65163"
+
+	txreq -url "/hash_foo_bar" -hdr "foo: /url2" -hdr "bar: varnish"
+	rxresp
+	expect resp.http.hash == "a1a27a25a00de431e643587f0a75e9e043bd8f9bd64f823be2fd904c36b65163"
+} -run

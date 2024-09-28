@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <float.h>
 
 #include <cjson/cJSON.h>
@@ -15,6 +16,7 @@
 #include "miniobj.h"
 #include "vnum.h"
 #include "vtim.h"
+#include "vsha256.h"
 #include "vcc_noreturn_if.h"
 
 
@@ -77,11 +79,7 @@ vmod_event_function(VRT_CTX, struct vmod_priv *priv, enum vcl_event_e e)
 }
 
 static const struct gethdr_s hdr_location = { HDR_RESP, "\011location:"};
-
-#define HDR_PAIR(name, s) \
-		static const struct gethdr_s hdr_req_ ## name = { HDR_REQ, s};
-
-HDR_PAIR(action, "\007action:");
+static const struct gethdr_s hdr_action = { HDR_REQ, "\007action:"};
 
 enum action {
 	action_synth,
@@ -102,6 +100,8 @@ struct what_next {
 	VCL_DURATION ttl;
 	VCL_DURATION keep;
 	VCL_DURATION grace;
+	bool has_hash;
+	struct VSHA256Context sha256ctx;
 };
 
 void
@@ -199,6 +199,52 @@ find_be(struct vcl_state *vs, VCL_STRING name)
 	return be;
 }
 
+struct what_next *
+get_ws(struct ws *ws, struct vmod_priv *priv_task)
+{
+	struct what_next *wn;
+
+	CHECK_OBJ_NOTNULL(ws, WS_MAGIC);
+	CAST_OBJ(wn, priv_task->priv, WN_MAGIC);
+
+	if (!wn) {
+		wn = WS_Alloc(ws, sizeof(struct what_next));
+		priv_task->priv = wn;
+
+		INIT_OBJ(wn, WN_MAGIC);
+		wn->ttl = NAN;
+		wn->grace = NAN;
+		wn->keep = NAN;
+	}
+	return wn; 
+}
+// this is more or less VRT_HashStrands32()
+VCL_VOID
+vmod_hash_data(VRT_CTX, struct vmod_priv *priv_task, VCL_STRANDS s)
+{
+	struct what_next *wn = get_ws(ctx->ws, priv_task);
+
+	CHECK_OBJ_NOTNULL(ctx, VRT_CTX_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req, REQ_MAGIC);
+	AN(s);
+
+	if (!wn) {
+		VRT_fail(ctx, "noreturn: worspace allocation failed");
+		return;
+	}
+
+	if (!wn->has_hash) {
+		wn->has_hash = true;
+		VSHA256_Init(&wn->sha256ctx);
+	}
+	// trust me, I sort of know what I'm doing
+	struct vrt_ctx _ctx;
+	_ctx.magic = ctx->magic;
+	_ctx.vsl = ctx->vsl;
+	_ctx.req = ctx->req;
+	_ctx.specific = &wn->sha256ctx;
+	VRT_hashdata(&_ctx, s);
+}
 
 VCL_VOID
 vmod_synth(VRT_CTX, struct VARGS(synth) *args) {
@@ -209,8 +255,11 @@ vmod_synth(VRT_CTX, struct VARGS(synth) *args) {
 	const char *reason = args->valid_reason ? args->reason : NULL;
 	VRT_synth(ctx, status, reason);
 
-	struct what_next *wn = WS_Alloc(ctx->ws, sizeof(struct what_next));
-	INIT_OBJ(wn, WN_MAGIC);
+	struct what_next *wn = get_ws(ctx->ws, args->priv);
+	if (!wn) {
+		VRT_fail(ctx, "noreturn: worspace allocation failed");
+		return;
+	}
 	wn->action = action_synth;
 	if (args->valid_message && args->message) {
 		wn->synth_msg = args->message;
@@ -218,7 +267,6 @@ vmod_synth(VRT_CTX, struct VARGS(synth) *args) {
 	if (args->valid_sub) {
 		wn->sub_ok = sub;
 	}
-	args->priv->priv = wn;
 
 	VRT_handling(ctx, VCL_RET_SYNTH);
 }
@@ -228,8 +276,12 @@ vmod_redirect(VRT_CTX, struct VARGS(redirect) *args) {
 	int status = args->valid_status ? args->status : 301;
 	VRT_synth(ctx, status, NULL);
 
-	struct what_next *wn = WS_Alloc(ctx->ws, sizeof(struct what_next));
-	INIT_OBJ(wn, WN_MAGIC);
+	struct what_next *wn = get_ws(ctx->ws, args->priv);
+	if (!wn) {
+		VRT_fail(ctx, "noreturn: worspace allocation failed");
+		return;
+	}
+
 	wn->action = action_redirect;
 	wn->redirect_location = args->location;
 	args->priv->priv = wn;
@@ -248,8 +300,10 @@ vmod_pass(VRT_CTX, struct VARGS(pass) *args) {
 	cJSON *state = cJSON_CreateObject();
 	AN(state);
 	cJSON_AddStringToObject(state, "action", "pass");
-	cJSON_AddStringToObject(state, "backend", args->backend->vcl_name);
-	save_be(d, args->backend);
+	if (args->backend) {
+		save_be(d, args->backend);
+		cJSON_AddStringToObject(state, "backend", args->backend->vcl_name);
+	}
 	if (args->valid_success_sub) {
 		save_sub(d, args->success_sub);
 		cJSON_AddStringToObject(state, "success_sub", args->success_sub->name);
@@ -260,7 +314,8 @@ vmod_pass(VRT_CTX, struct VARGS(pass) *args) {
 	}
 	char buf[1024];
 	AN(cJSON_PrintPreallocated(state, buf, sizeof(buf), 0));
-	VRT_SetHdr(ctx, &hdr_req_action, 0, TOSTRAND(buf));
+	VRT_SetHdr(ctx, &hdr_action, 0, TOSTRAND(buf));
+	cJSON_free(state);
 	VRT_handling(ctx, VCL_RET_PASS);
 }
 
@@ -277,8 +332,10 @@ vmod_cache(VRT_CTX, struct VARGS(cache) *args) {
 	AN(state);
 	cJSON_AddStringToObject(state, "action", "cache");
 
-	save_be(d, args->backend);
-	cJSON_AddStringToObject(state, "backend", args->backend->vcl_name);
+	if (args->backend) {
+		save_be(d, args->backend);
+		cJSON_AddStringToObject(state, "backend", args->backend->vcl_name);
+	}
 
 	if (args->valid_success_sub) {
 		save_sub(d, args->success_sub);
@@ -299,7 +356,8 @@ vmod_cache(VRT_CTX, struct VARGS(cache) *args) {
 	}
 	char buf[1024];
 	AN(cJSON_PrintPreallocated(state, buf, sizeof(buf), 0));
-	VRT_SetHdr(ctx, &hdr_req_action, 0, TOSTRAND(buf));
+	VRT_SetHdr(ctx, &hdr_action, 0, TOSTRAND(buf));
+	cJSON_free(state);
 	if (!args->force_cache && d->builtin_recv) {
 		VRT_call(ctx, d->builtin_recv);
 	}
@@ -317,10 +375,10 @@ vmod_internal_load_state(VRT_CTX, struct vmod_priv *priv_vcl, struct vmod_priv *
 	AN(priv_vcl);
 	AN(priv_task);
 
-	wn = (struct what_next *)(priv_task->priv);
+	wn = get_ws(ctx->ws, priv_task);
 	if (!wn) {
-		wn = WS_Alloc(ctx->ws, sizeof(struct what_next));
-		priv_task->priv = wn;
+		VRT_fail(ctx, "noreturn: worspace allocation failed");
+		return;
 	}
 
 	memset(wn, 0, sizeof(struct what_next));
@@ -365,16 +423,19 @@ vmod_internal_load_state(VRT_CTX, struct vmod_priv *priv_vcl, struct vmod_priv *
 	}
 
 	el = cJSON_GetObjectItem(state, "backend");
-	if (!el || !cJSON_IsString(el)) {
-		VRT_fail(ctx, "invalid backend in %s", json);
-		cJSON_free(state);
-		return;
-	}
-	VCL_BACKEND be = find_be(d, cJSON_GetStringValue(el));
-	if (!be) {
-		VRT_fail(ctx, "unknown backend %s in %s", cJSON_GetStringValue(el), json);
-		cJSON_free(state);
-		return;
+	VCL_BACKEND be = NULL;
+	if (el) {
+		if (!cJSON_IsString(el)) {
+			VRT_fail(ctx, "invalid backend in %s", json);
+			cJSON_free(state);
+			return;
+		}
+		be = find_be(d, cJSON_GetStringValue(el));
+		if (!be) {
+			VRT_fail(ctx, "unknown backend %s in %s", cJSON_GetStringValue(el), json);
+			cJSON_free(state);
+			return;
+		}
 	}
 	VRT_l_bereq_backend(ctx, be);
 
@@ -426,6 +487,13 @@ vmod_internal_proceed(VRT_CTX, struct vmod_priv *priv)
 	// we are not needed here
 	if (!wn) {
 		return;
+	}
+
+	if (ctx->method == VCL_MET_HASH && wn->has_hash) {
+		CHECK_OBJ_NOTNULL(ctx, VRT_CTX_MAGIC);
+		CHECK_OBJ_NOTNULL(ctx->req, REQ_MAGIC);
+		memcpy(ctx->specific, &wn->sha256ctx, sizeof(wn->sha256ctx));
+		VRT_handling(ctx, VCL_RET_LOOKUP);
 	}
 
 	if (ctx->method == VCL_MET_BACKEND_RESPONSE) {

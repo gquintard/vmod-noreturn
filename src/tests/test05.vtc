@@ -9,7 +9,6 @@ server s1 {
 } -start
 
 varnish v1 -vcl+backend {
-	import std;
 	import ${vmod_noreturn};
 
 	include "${testdir}/../noreturn.vcl";
