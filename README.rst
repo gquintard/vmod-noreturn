@@ -16,28 +16,7 @@ import noreturn;
 DESCRIPTION
 ===========
 
-Lets Varnish vmod demonstrating how to write an out-of-tree Varnish vmod.
-
-Implements the traditional Hello World as a vmod.
-
-FUNCTIONS
-=========
-
-hello
------
-
-Prototype
-        ::
-
-                hello(STRING S)
-Return value
-	STRING
-Description
-	Returns "Hello, " prepended to S
-Lets
-        ::
-
-                set resp.http.hello = noreturn.hello("World");
+Simplify FSM handling by letting the user pilot the request processing mostly from `vcl_recv{}`
 
 INSTALLATION
 ============
